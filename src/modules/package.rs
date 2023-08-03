@@ -227,29 +227,35 @@ fn get_cargo_version(context: &Context, config: &PackageConfig) -> Option<String
 
     let raw_version = if let Some(v) = cargo_version.and_then(toml::Value::as_str) {
         v
-    } else if cargo_version.and_then(|v| v.get("workspace"))?.as_bool()? {
-        let mut ancestors = context
-            .current_dir
-            .ancestors()
-            .map(|a| a.join("Cargo.toml"))
-            .filter(|c| c.exists());
+    } else if cargo_version
+        .and_then(|v| v.get("workspace"))
+        .and_then(|w| w.as_bool())
+        .unwrap_or_default()
+    {
+        let mut version = None;
+        let mut contents = String::new();
 
-        loop {
-            match cargo_toml
-                .get("workspace")
-                .and_then(|w| w.get("package"))
-                .and_then(|p| p.get("version"))
-                .and_then(|v| v.as_str())
-            {
-                Some(v) => break v,
-                None => {
-                    let cargo_path = ancestors.next()?;
-                    cargo_toml = std::fs::read_to_string(cargo_path).ok()?.parse().ok()?;
-                }
+        for path in context.current_dir.ancestors().skip(1) {
+            if let Ok(mut file) = std::fs::File::open(path.join("Cargo.toml")) {
+                std::io::Read::read_to_string(&mut file, &mut contents).ok()?;
+                cargo_toml = contents.parse().ok()?;
+
+                version = cargo_toml
+                    .get("workspace")?
+                    .get("package")?
+                    .get("version")?
+                    .as_str();
+                break;
             }
         }
+
+        version?
     } else {
-        return None;
+        cargo_toml
+            .get("workspace")?
+            .get("package")?
+            .get("version")?
+            .as_str()?
     };
 
     format_version(raw_version, config.version_format)
